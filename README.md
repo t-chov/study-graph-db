@@ -1,12 +1,30 @@
 # study-graph-db
 
-Graph DB implementation study project in Go.
+GoでGraph DBの内部実装を理解するための学習用プロジェクトです。
+
+## 重要事項
+
+- このリポジトリは学習・検証用途のみを目的としています。
+- **実運用（本番環境）には投入しないでください。**
+- 耐障害性、永続化、トランザクション整合性、セキュリティ、運用監視など本番要件は未充足です。
+
+## プロジェクト概要
+
+- 目的: Graph DBの基本要素（ノード、エッジ、インデックス、クエリ計画）を段階的に実装して理解する
+- 言語: Go
+- 進め方: `v1` から `v8` まで、機能を小さく追加しながら実装
+
+### 現在の実装状況
+
+- `v1`: インメモリのノード・エッジ・ラベル検索
+- `v2`: プロパティインデックス（作成/削除、検索フォールバック付き）
+- `v3` 以降: `docs/roadmap.md` を参照
 
 ## Scaffold
 
 - `cmd/study-graph-db`: entrypoint
-- `internal/graphdb`: core API and in-memory scaffold
-- `docs/roadmap.md`: v1-v8 implementation roadmap
+- `internal/graphdb`: Graph DBコア実装
+- `docs/roadmap.md`: v1-v8の実装ロードマップ
 
 ## Run
 
