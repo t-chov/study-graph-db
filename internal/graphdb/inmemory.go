@@ -30,6 +30,13 @@ type InMemoryEngine struct {
 
 	// propertyIndexes[(label, property)] => valueKey => node IDs
 	propertyIndexes map[propertyIndexKey]map[string]map[NodeID]struct{}
+
+	// edgeTypeIndex[edgeType] => edge IDs
+	edgeTypeIndex map[string]map[EdgeID]struct{}
+	// outAdj[fromNode] => edge IDs
+	outAdj map[NodeID]map[EdgeID]struct{}
+	// inAdj[toNode] => edge IDs
+	inAdj map[NodeID]map[EdgeID]struct{}
 }
 
 func NewInMemoryEngine() *InMemoryEngine {
@@ -38,6 +45,9 @@ func NewInMemoryEngine() *InMemoryEngine {
 		edges:           make(map[EdgeID]Edge),
 		labelIndex:      make(map[string]map[NodeID]struct{}),
 		propertyIndexes: make(map[propertyIndexKey]map[string]map[NodeID]struct{}),
+		edgeTypeIndex:   make(map[string]map[EdgeID]struct{}),
+		outAdj:          make(map[NodeID]map[EdgeID]struct{}),
+		inAdj:           make(map[NodeID]map[EdgeID]struct{}),
 	}
 }
 
@@ -91,6 +101,7 @@ func (e *InMemoryEngine) CreateEdge(from NodeID, to NodeID, edgeType string, pro
 		Properties: cloneProperties(props),
 	}
 	e.edges[id] = edge
+	e.indexEdge(edge)
 
 	return id, nil
 }
@@ -150,6 +161,39 @@ func (e *InMemoryEngine) FindNodesByProperty(label string, property string, valu
 		}
 	}
 	return matches, nil
+}
+
+func (e *InMemoryEngine) FindEdgesByType(edgeType string) ([]Edge, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	ids, ok := e.edgeTypeIndex[edgeType]
+	if !ok {
+		return []Edge{}, nil
+	}
+	return e.collectEdges(ids), nil
+}
+
+func (e *InMemoryEngine) FindOutgoingEdges(from NodeID) ([]Edge, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	ids, ok := e.outAdj[from]
+	if !ok {
+		return []Edge{}, nil
+	}
+	return e.collectEdges(ids), nil
+}
+
+func (e *InMemoryEngine) FindIncomingEdges(to NodeID) ([]Edge, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	ids, ok := e.inAdj[to]
+	if !ok {
+		return []Edge{}, nil
+	}
+	return e.collectEdges(ids), nil
 }
 
 func (e *InMemoryEngine) Match(_ string) (ResultSet, error) {
@@ -320,4 +364,39 @@ func cloneNode(node Node) Node {
 		Labels:     cloneLabels(node.Labels),
 		Properties: cloneProperties(node.Properties),
 	}
+}
+
+func cloneEdge(edge Edge) Edge {
+	return Edge{
+		ID:         edge.ID,
+		From:       edge.From,
+		To:         edge.To,
+		Type:       edge.Type,
+		Properties: cloneProperties(edge.Properties),
+	}
+}
+
+func (e *InMemoryEngine) indexEdge(edge Edge) {
+	if _, ok := e.edgeTypeIndex[edge.Type]; !ok {
+		e.edgeTypeIndex[edge.Type] = make(map[EdgeID]struct{})
+	}
+	e.edgeTypeIndex[edge.Type][edge.ID] = struct{}{}
+
+	if _, ok := e.outAdj[edge.From]; !ok {
+		e.outAdj[edge.From] = make(map[EdgeID]struct{})
+	}
+	e.outAdj[edge.From][edge.ID] = struct{}{}
+
+	if _, ok := e.inAdj[edge.To]; !ok {
+		e.inAdj[edge.To] = make(map[EdgeID]struct{})
+	}
+	e.inAdj[edge.To][edge.ID] = struct{}{}
+}
+
+func (e *InMemoryEngine) collectEdges(ids map[EdgeID]struct{}) []Edge {
+	edges := make([]Edge, 0, len(ids))
+	for id := range ids {
+		edges = append(edges, cloneEdge(e.edges[id]))
+	}
+	return edges
 }

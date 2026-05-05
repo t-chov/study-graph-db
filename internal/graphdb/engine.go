@@ -14,6 +14,11 @@ type Engine interface {
 	// v2: property index
 	FindNodesByProperty(label string, property string, value any) ([]Node, error)
 
+	// v3: edge-type index and adjacency list
+	FindEdgesByType(edgeType string) ([]Edge, error)
+	FindOutgoingEdges(from NodeID) ([]Edge, error)
+	FindIncomingEdges(to NodeID) ([]Edge, error)
+
 	// v4: simple MATCH query
 	Match(query string) (ResultSet, error)
 

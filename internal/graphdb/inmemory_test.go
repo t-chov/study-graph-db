@@ -188,3 +188,95 @@ func TestCreateIndexValidation(t *testing.T) {
 		t.Fatalf("expected ErrUnsupportedIndexKind, got: %v", err)
 	}
 }
+
+func TestFindEdgesByType(t *testing.T) {
+	e := NewInMemoryEngine()
+	a, err := e.CreateNode([]string{"User"}, map[string]any{"name": "alice"})
+	if err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+	b, err := e.CreateNode([]string{"User"}, map[string]any{"name": "bob"})
+	if err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+	c, err := e.CreateNode([]string{"User"}, map[string]any{"name": "carol"})
+	if err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+
+	if _, err := e.CreateEdge(a, b, "FOLLOWS", map[string]any{"w": 1}); err != nil {
+		t.Fatalf("create edge failed: %v", err)
+	}
+	if _, err := e.CreateEdge(a, c, "LIKES", map[string]any{"w": 2}); err != nil {
+		t.Fatalf("create edge failed: %v", err)
+	}
+	if _, err := e.CreateEdge(b, c, "FOLLOWS", map[string]any{"w": 3}); err != nil {
+		t.Fatalf("create edge failed: %v", err)
+	}
+
+	edges, err := e.FindEdgesByType("FOLLOWS")
+	if err != nil {
+		t.Fatalf("find edges by type failed: %v", err)
+	}
+	if len(edges) != 2 {
+		t.Fatalf("expected 2 edges, got: %d", len(edges))
+	}
+
+	edges, err = e.FindEdgesByType("UNKNOWN")
+	if err != nil {
+		t.Fatalf("find edges by type failed: %v", err)
+	}
+	if len(edges) != 0 {
+		t.Fatalf("expected 0 edges, got: %d", len(edges))
+	}
+}
+
+func TestAdjacencyLists(t *testing.T) {
+	e := NewInMemoryEngine()
+	a, err := e.CreateNode([]string{"User"}, nil)
+	if err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+	b, err := e.CreateNode([]string{"User"}, nil)
+	if err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+	c, err := e.CreateNode([]string{"User"}, nil)
+	if err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+
+	if _, err := e.CreateEdge(a, b, "FOLLOWS", nil); err != nil {
+		t.Fatalf("create edge failed: %v", err)
+	}
+	if _, err := e.CreateEdge(a, c, "LIKES", nil); err != nil {
+		t.Fatalf("create edge failed: %v", err)
+	}
+	if _, err := e.CreateEdge(c, a, "FOLLOWS", nil); err != nil {
+		t.Fatalf("create edge failed: %v", err)
+	}
+
+	out, err := e.FindOutgoingEdges(a)
+	if err != nil {
+		t.Fatalf("find outgoing edges failed: %v", err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("expected 2 outgoing edges, got: %d", len(out))
+	}
+	for _, edge := range out {
+		if edge.From != a {
+			t.Fatalf("unexpected from node in outgoing edge: %+v", edge)
+		}
+	}
+
+	in, err := e.FindIncomingEdges(a)
+	if err != nil {
+		t.Fatalf("find incoming edges failed: %v", err)
+	}
+	if len(in) != 1 {
+		t.Fatalf("expected 1 incoming edge, got: %d", len(in))
+	}
+	if in[0].To != a {
+		t.Fatalf("unexpected to node in incoming edge: %+v", in[0])
+	}
+}
