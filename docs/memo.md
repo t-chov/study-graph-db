@@ -13,3 +13,17 @@
 ## インデックス構築について
 
 - Naive な実装ではインデックス構築が O(NM) のような計算量になるが、これは工夫で回避できる
+
+## 2-hop クエリ高速化の観点
+
+- 例: `User(alice)` をフォローしているユーザーが `SUBSCRIBES` しているプロジェクトを知りたい
+- この種のクエリは、全エッジ走査ではなく「始点から局所的にたどる」構造が重要
+- 必要なデータ構造の中心は typed adjacency:
+  - `inAdjByType[nodeID][edgeType] -> neighborNodeIDs`
+  - `outAdjByType[nodeID][edgeType] -> neighborNodeIDs`
+- さらにノード特定のために、`User.name=alice` のようなプロパティ索引（v2）を入口に使う
+- 実行イメージ:
+  1. `alice` を索引で `aliceID` に解決
+  2. `inAdjByType[aliceID]["FOLLOWS"]` でフォロワー集合を取得
+  3. 各フォロワーの `outAdjByType[follower]["SUBSCRIBES"]` をたどってプロジェクトを集約
+- これにより、計算量は「グラフ全体サイズ」ではなく「実際にたどる近傍サイズ」に寄せられる
