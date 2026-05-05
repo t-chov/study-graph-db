@@ -101,3 +101,90 @@ func TestCreateEdgeValidatesInputs(t *testing.T) {
 		t.Fatalf("expected ErrNodeNotFound, got: %v", err)
 	}
 }
+
+func TestFindNodesByPropertyWithoutIndexFallsBackToScan(t *testing.T) {
+	e := NewInMemoryEngine()
+	if _, err := e.CreateNode([]string{"User"}, map[string]any{"name": "alice"}); err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+	if _, err := e.CreateNode([]string{"User"}, map[string]any{"name": "bob"}); err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+
+	nodes, err := e.FindNodesByProperty("User", "name", "alice")
+	if err != nil {
+		t.Fatalf("find nodes by property failed: %v", err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 node, got: %d", len(nodes))
+	}
+	if got := nodes[0].Properties["name"]; got != "alice" {
+		t.Fatalf("unexpected node property: %v", got)
+	}
+}
+
+func TestPropertyIndexBackfillAndIncrementalUpdate(t *testing.T) {
+	e := NewInMemoryEngine()
+	if _, err := e.CreateNode([]string{"User"}, map[string]any{"name": "alice"}); err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+
+	spec := IndexSpec{
+		Kind:     IndexKindProperty,
+		Label:    "User",
+		Property: "name",
+	}
+	if err := e.CreateIndex(spec); err != nil {
+		t.Fatalf("create index failed: %v", err)
+	}
+
+	nodes, err := e.FindNodesByProperty("User", "name", "alice")
+	if err != nil {
+		t.Fatalf("find nodes by property failed: %v", err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 backfilled node, got: %d", len(nodes))
+	}
+
+	if _, err := e.CreateNode([]string{"User"}, map[string]any{"name": "bob"}); err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+	nodes, err = e.FindNodesByProperty("User", "name", "bob")
+	if err != nil {
+		t.Fatalf("find nodes by property failed: %v", err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 incrementally indexed node, got: %d", len(nodes))
+	}
+}
+
+func TestDropPropertyIndex(t *testing.T) {
+	e := NewInMemoryEngine()
+	spec := IndexSpec{
+		Kind:     IndexKindProperty,
+		Label:    "User",
+		Property: "name",
+	}
+	if err := e.CreateIndex(spec); err != nil {
+		t.Fatalf("create index failed: %v", err)
+	}
+	if err := e.DropIndex(spec); err != nil {
+		t.Fatalf("drop index failed: %v", err)
+	}
+	if _, ok := e.propertyIndexes[propertyIndexKey{Label: "User", Property: "name"}]; ok {
+		t.Fatal("expected property index to be removed")
+	}
+}
+
+func TestCreateIndexValidation(t *testing.T) {
+	e := NewInMemoryEngine()
+	if err := e.CreateIndex(IndexSpec{Kind: IndexKindEdgeType, Label: "User", Property: "name"}); err != ErrUnsupportedIndexKind {
+		t.Fatalf("expected ErrUnsupportedIndexKind, got: %v", err)
+	}
+	if err := e.CreateIndex(IndexSpec{Kind: IndexKindProperty, Label: "", Property: "name"}); err != ErrInvalidIndexSpec {
+		t.Fatalf("expected ErrInvalidIndexSpec, got: %v", err)
+	}
+	if err := e.DropIndex(IndexSpec{Kind: IndexKindEdgeType, Label: "User", Property: "name"}); err != ErrUnsupportedIndexKind {
+		t.Fatalf("expected ErrUnsupportedIndexKind, got: %v", err)
+	}
+}

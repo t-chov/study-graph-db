@@ -2,12 +2,17 @@ package graphdb
 
 import (
 	"errors"
+	"fmt"
+	"reflect"
 	"sync"
 )
 
 var (
-	ErrNodeNotFound  = errors.New("node not found")
-	ErrEmptyEdgeType = errors.New("edge type must not be empty")
+	ErrNodeNotFound            = errors.New("node not found")
+	ErrEmptyEdgeType           = errors.New("edge type must not be empty")
+	ErrInvalidIndexSpec        = errors.New("invalid index spec")
+	ErrUnsupportedIndexKind    = errors.New("unsupported index kind")
+	ErrUnsupportedPropertyType = errors.New("unsupported property value type for index")
 )
 
 // InMemoryEngine is a minimal scaffold for iterative implementation.
@@ -22,13 +27,17 @@ type InMemoryEngine struct {
 
 	// labelIndex[label] => node IDs that have the label.
 	labelIndex map[string]map[NodeID]struct{}
+
+	// propertyIndexes[(label, property)] => valueKey => node IDs
+	propertyIndexes map[propertyIndexKey]map[string]map[NodeID]struct{}
 }
 
 func NewInMemoryEngine() *InMemoryEngine {
 	return &InMemoryEngine{
-		nodes:      make(map[NodeID]Node),
-		edges:      make(map[EdgeID]Edge),
-		labelIndex: make(map[string]map[NodeID]struct{}),
+		nodes:           make(map[NodeID]Node),
+		edges:           make(map[EdgeID]Edge),
+		labelIndex:      make(map[string]map[NodeID]struct{}),
+		propertyIndexes: make(map[propertyIndexKey]map[string]map[NodeID]struct{}),
 	}
 }
 
@@ -52,6 +61,7 @@ func (e *InMemoryEngine) CreateNode(labels []string, props map[string]any) (Node
 		}
 		e.labelIndex[label][id] = struct{}{}
 	}
+	e.indexNodeProperties(node)
 
 	return id, nil
 }
@@ -106,6 +116,42 @@ func (e *InMemoryEngine) FindNodesByLabel(label string) ([]Node, error) {
 	return nodes, nil
 }
 
+func (e *InMemoryEngine) FindNodesByProperty(label string, property string, value any) ([]Node, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	key := propertyIndexKey{
+		Label:    label,
+		Property: property,
+	}
+	if valueMap, ok := e.propertyIndexes[key]; ok {
+		valueKey, err := propertyValueKey(value)
+		if err != nil {
+			return nil, err
+		}
+		ids, ok := valueMap[valueKey]
+		if !ok {
+			return []Node{}, nil
+		}
+		return e.collectNodes(ids), nil
+	}
+
+	ids, ok := e.labelIndex[label]
+	if !ok {
+		return []Node{}, nil
+	}
+
+	// Fallback scan when index does not exist yet.
+	matches := make([]Node, 0)
+	for id := range ids {
+		node := e.nodes[id]
+		if reflect.DeepEqual(node.Properties[property], value) {
+			matches = append(matches, cloneNode(node))
+		}
+	}
+	return matches, nil
+}
+
 func (e *InMemoryEngine) Match(_ string) (ResultSet, error) {
 	return ResultSet{}, ErrNotImplemented
 }
@@ -114,12 +160,62 @@ func (e *InMemoryEngine) Explain(_ string) (QueryPlan, error) {
 	return QueryPlan{}, ErrNotImplemented
 }
 
-func (e *InMemoryEngine) CreateIndex(_ IndexSpec) error {
-	return ErrNotImplemented
+func (e *InMemoryEngine) CreateIndex(spec IndexSpec) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if spec.Kind != IndexKindProperty {
+		return ErrUnsupportedIndexKind
+	}
+	if spec.Label == "" || spec.Property == "" {
+		return ErrInvalidIndexSpec
+	}
+
+	key := propertyIndexKey{
+		Label:    spec.Label,
+		Property: spec.Property,
+	}
+	if _, ok := e.propertyIndexes[key]; ok {
+		return nil
+	}
+
+	e.propertyIndexes[key] = make(map[string]map[NodeID]struct{})
+
+	for id := range e.labelIndex[spec.Label] {
+		node := e.nodes[id]
+		value, ok := node.Properties[spec.Property]
+		if !ok {
+			continue
+		}
+		valueKey, err := propertyValueKey(value)
+		if err != nil {
+			continue
+		}
+		if _, ok := e.propertyIndexes[key][valueKey]; !ok {
+			e.propertyIndexes[key][valueKey] = make(map[NodeID]struct{})
+		}
+		e.propertyIndexes[key][valueKey][id] = struct{}{}
+	}
+
+	return nil
 }
 
-func (e *InMemoryEngine) DropIndex(_ IndexSpec) error {
-	return ErrNotImplemented
+func (e *InMemoryEngine) DropIndex(spec IndexSpec) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if spec.Kind != IndexKindProperty {
+		return ErrUnsupportedIndexKind
+	}
+	if spec.Label == "" || spec.Property == "" {
+		return ErrInvalidIndexSpec
+	}
+
+	delete(e.propertyIndexes, propertyIndexKey{
+		Label:    spec.Label,
+		Property: spec.Property,
+	})
+	return nil
 }
 
 func (e *InMemoryEngine) Begin() (Tx, error) {
@@ -144,4 +240,84 @@ func cloneProperties(props map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+type propertyIndexKey struct {
+	Label    string
+	Property string
+}
+
+func propertyValueKey(value any) (string, error) {
+	switch v := value.(type) {
+	case nil:
+		return "nil", nil
+	case string:
+		return "s:" + v, nil
+	case bool:
+		return fmt.Sprintf("b:%t", v), nil
+	case int:
+		return fmt.Sprintf("i:%d", v), nil
+	case int8:
+		return fmt.Sprintf("i:%d", v), nil
+	case int16:
+		return fmt.Sprintf("i:%d", v), nil
+	case int32:
+		return fmt.Sprintf("i:%d", v), nil
+	case int64:
+		return fmt.Sprintf("i:%d", v), nil
+	case uint:
+		return fmt.Sprintf("u:%d", v), nil
+	case uint8:
+		return fmt.Sprintf("u:%d", v), nil
+	case uint16:
+		return fmt.Sprintf("u:%d", v), nil
+	case uint32:
+		return fmt.Sprintf("u:%d", v), nil
+	case uint64:
+		return fmt.Sprintf("u:%d", v), nil
+	case float32:
+		return fmt.Sprintf("f:%g", v), nil
+	case float64:
+		return fmt.Sprintf("f:%g", v), nil
+	default:
+		return "", ErrUnsupportedPropertyType
+	}
+}
+
+func (e *InMemoryEngine) indexNodeProperties(node Node) {
+	for _, label := range node.Labels {
+		for key, valueMap := range e.propertyIndexes {
+			if key.Label != label {
+				continue
+			}
+			value, ok := node.Properties[key.Property]
+			if !ok {
+				continue
+			}
+			valueKey, err := propertyValueKey(value)
+			if err != nil {
+				continue
+			}
+			if _, ok := valueMap[valueKey]; !ok {
+				valueMap[valueKey] = make(map[NodeID]struct{})
+			}
+			valueMap[valueKey][node.ID] = struct{}{}
+		}
+	}
+}
+
+func (e *InMemoryEngine) collectNodes(ids map[NodeID]struct{}) []Node {
+	nodes := make([]Node, 0, len(ids))
+	for id := range ids {
+		nodes = append(nodes, cloneNode(e.nodes[id]))
+	}
+	return nodes
+}
+
+func cloneNode(node Node) Node {
+	return Node{
+		ID:         node.ID,
+		Labels:     cloneLabels(node.Labels),
+		Properties: cloneProperties(node.Properties),
+	}
 }

@@ -11,6 +11,9 @@ type Engine interface {
 	CreateEdge(from NodeID, to NodeID, edgeType string, props map[string]any) (EdgeID, error)
 	FindNodesByLabel(label string) ([]Node, error)
 
+	// v2: property index
+	FindNodesByProperty(label string, property string, value any) ([]Node, error)
+
 	// v4: simple MATCH query
 	Match(query string) (ResultSet, error)
 
