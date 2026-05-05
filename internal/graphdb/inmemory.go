@@ -13,6 +13,7 @@ var (
 	ErrInvalidIndexSpec        = errors.New("invalid index spec")
 	ErrUnsupportedIndexKind    = errors.New("unsupported index kind")
 	ErrUnsupportedPropertyType = errors.New("unsupported property value type for index")
+	ErrInvalidMatchQuery       = errors.New("invalid MATCH query")
 )
 
 // InMemoryEngine is a minimal scaffold for iterative implementation.
@@ -109,22 +110,7 @@ func (e *InMemoryEngine) CreateEdge(from NodeID, to NodeID, edgeType string, pro
 func (e *InMemoryEngine) FindNodesByLabel(label string) ([]Node, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-
-	ids, ok := e.labelIndex[label]
-	if !ok {
-		return []Node{}, nil
-	}
-
-	nodes := make([]Node, 0, len(ids))
-	for id := range ids {
-		node := e.nodes[id]
-		nodes = append(nodes, Node{
-			ID:         node.ID,
-			Labels:     cloneLabels(node.Labels),
-			Properties: cloneProperties(node.Properties),
-		})
-	}
-	return nodes, nil
+	return e.findNodesByLabelNoLock(label), nil
 }
 
 func (e *InMemoryEngine) FindNodesByProperty(label string, property string, value any) ([]Node, error) {
@@ -166,12 +152,7 @@ func (e *InMemoryEngine) FindNodesByProperty(label string, property string, valu
 func (e *InMemoryEngine) FindEdgesByType(edgeType string) ([]Edge, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-
-	ids, ok := e.edgeTypeIndex[edgeType]
-	if !ok {
-		return []Edge{}, nil
-	}
-	return e.collectEdges(ids), nil
+	return e.findEdgesByTypeNoLock(edgeType), nil
 }
 
 func (e *InMemoryEngine) FindOutgoingEdges(from NodeID) ([]Edge, error) {
@@ -196,8 +177,10 @@ func (e *InMemoryEngine) FindIncomingEdges(to NodeID) ([]Edge, error) {
 	return e.collectEdges(ids), nil
 }
 
-func (e *InMemoryEngine) Match(_ string) (ResultSet, error) {
-	return ResultSet{}, ErrNotImplemented
+func (e *InMemoryEngine) Match(query string) (ResultSet, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return executeSimpleMatch(e, query)
 }
 
 func (e *InMemoryEngine) Explain(_ string) (QueryPlan, error) {
@@ -356,6 +339,22 @@ func (e *InMemoryEngine) collectNodes(ids map[NodeID]struct{}) []Node {
 		nodes = append(nodes, cloneNode(e.nodes[id]))
 	}
 	return nodes
+}
+
+func (e *InMemoryEngine) findNodesByLabelNoLock(label string) []Node {
+	ids, ok := e.labelIndex[label]
+	if !ok {
+		return []Node{}
+	}
+	return e.collectNodes(ids)
+}
+
+func (e *InMemoryEngine) findEdgesByTypeNoLock(edgeType string) []Edge {
+	ids, ok := e.edgeTypeIndex[edgeType]
+	if !ok {
+		return []Edge{}
+	}
+	return e.collectEdges(ids)
 }
 
 func cloneNode(node Node) Node {
