@@ -1,0 +1,42 @@
+# Go
+bin/
+dist/
+*.test
+*.out
+coverage.out
+
+# IDE / OS
+.DS_Store
+
+# Legacy build artifacts
+.gradle/
+build/
+# Gradle
+.gradle/
+build/
+
+# Kotlin
+.kotlin/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# JUnit / test
+.test/
+
+# Detekt
+detekt-baseline.xml
+
+# Local
+local.properties
+*.log
