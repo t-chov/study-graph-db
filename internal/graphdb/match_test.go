@@ -66,6 +66,30 @@ func TestExecuteSimpleMatch_InvalidQuery(t *testing.T) {
 	}
 }
 
+func TestParseSimpleMatchQuery(t *testing.T) {
+	parsed, err := parseSimpleMatchQuery("MATCH (n:User);")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	if parsed.kind != simpleMatchKindNode {
+		t.Fatalf("unexpected kind: %s", parsed.kind)
+	}
+	if parsed.nodeVar != "n" || parsed.nodeLabel != "User" {
+		t.Fatalf("unexpected parsed node pattern: %+v", parsed)
+	}
+
+	parsed, err = parseSimpleMatchQuery("MATCH (a:User)-[:FOLLOWS]->(b:User)")
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+	if parsed.kind != simpleMatchKindSingleHop {
+		t.Fatalf("unexpected kind: %s", parsed.kind)
+	}
+	if parsed.leftVar != "a" || parsed.leftLabel != "User" || parsed.edgeType != "FOLLOWS" || parsed.rightVar != "b" || parsed.rightLabel != "User" {
+		t.Fatalf("unexpected parsed edge pattern: %+v", parsed)
+	}
+}
+
 func TestHasLabel(t *testing.T) {
 	node := Node{
 		ID:     1,

@@ -1,6 +1,9 @@
 package graphdb
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNewInMemoryEngine(t *testing.T) {
 	e := NewInMemoryEngine()
@@ -350,6 +353,68 @@ func TestMatchSingleHopPattern(t *testing.T) {
 func TestMatchInvalidQuery(t *testing.T) {
 	e := NewInMemoryEngine()
 	if _, err := e.Match("MATCH (n)"); err != ErrInvalidMatchQuery {
+		t.Fatalf("expected ErrInvalidMatchQuery, got: %v", err)
+	}
+}
+
+func TestExplainNodePattern(t *testing.T) {
+	e := NewInMemoryEngine()
+	if _, err := e.CreateNode([]string{"User"}, map[string]any{"name": "alice"}); err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+	if _, err := e.CreateNode([]string{"User"}, map[string]any{"name": "bob"}); err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+
+	plan, err := e.Explain("MATCH (n:User)")
+	if err != nil {
+		t.Fatalf("explain failed: %v", err)
+	}
+	if len(plan.Steps) == 0 {
+		t.Fatal("expected non-empty plan")
+	}
+	joined := strings.Join(plan.Steps, " | ")
+	if !strings.Contains(joined, "labelIndex") {
+		t.Fatalf("expected label index step, got: %s", joined)
+	}
+	if !strings.Contains(joined, "Candidate nodes: 2") {
+		t.Fatalf("expected candidate count step, got: %s", joined)
+	}
+}
+
+func TestExplainSingleHopPattern(t *testing.T) {
+	e := NewInMemoryEngine()
+	alice, err := e.CreateNode([]string{"User"}, map[string]any{"name": "alice"})
+	if err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+	bob, err := e.CreateNode([]string{"User"}, map[string]any{"name": "bob"})
+	if err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+	if _, err := e.CreateEdge(alice, bob, "FOLLOWS", nil); err != nil {
+		t.Fatalf("create edge failed: %v", err)
+	}
+
+	plan, err := e.Explain("MATCH (a:User)-[:FOLLOWS]->(b:User)")
+	if err != nil {
+		t.Fatalf("explain failed: %v", err)
+	}
+	if len(plan.Steps) < 3 {
+		t.Fatalf("expected multiple plan steps, got: %v", plan.Steps)
+	}
+	joined := strings.Join(plan.Steps, " | ")
+	if !strings.Contains(joined, "edgeTypeIndex") {
+		t.Fatalf("expected edge type index step, got: %s", joined)
+	}
+	if !strings.Contains(joined, "Candidate edges: 1") {
+		t.Fatalf("expected candidate edge count step, got: %s", joined)
+	}
+}
+
+func TestExplainInvalidQuery(t *testing.T) {
+	e := NewInMemoryEngine()
+	if _, err := e.Explain("MATCH (n)"); err != ErrInvalidMatchQuery {
 		t.Fatalf("expected ErrInvalidMatchQuery, got: %v", err)
 	}
 }

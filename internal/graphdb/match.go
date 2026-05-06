@@ -25,17 +25,26 @@ var (
 )
 
 func executeSimpleMatch(e *InMemoryEngine, query string) (ResultSet, error) {
-	normalized := strings.TrimSpace(query)
-	normalized = strings.TrimSuffix(normalized, ";")
-	normalized = strings.TrimSpace(normalized)
+	parsed, err := parseSimpleMatchQuery(query)
+	if err != nil {
+		return ResultSet{}, err
+	}
 
-	if m := nodeMatchPattern.FindStringSubmatch(normalized); m != nil {
-		return matchSingleNode(e, m[1], m[2]), nil
+	switch parsed.kind {
+	case simpleMatchKindNode:
+		return matchSingleNode(e, parsed.nodeVar, parsed.nodeLabel), nil
+	case simpleMatchKindSingleHop:
+		return matchSingleHop(
+			e,
+			parsed.leftVar,
+			parsed.leftLabel,
+			parsed.edgeType,
+			parsed.rightVar,
+			parsed.rightLabel,
+		), nil
+	default:
+		return ResultSet{}, ErrInvalidMatchQuery
 	}
-	if m := edgeMatchPattern.FindStringSubmatch(normalized); m != nil {
-		return matchSingleHop(e, m[1], m[2], m[3], m[4], m[5]), nil
-	}
-	return ResultSet{}, ErrInvalidMatchQuery
 }
 
 func matchSingleNode(e *InMemoryEngine, nodeVar string, label string) ResultSet {
@@ -74,4 +83,49 @@ func hasLabel(node Node, label string) bool {
 		}
 	}
 	return false
+}
+
+type simpleMatchKind string
+
+const (
+	simpleMatchKindNode      simpleMatchKind = "node"
+	simpleMatchKindSingleHop simpleMatchKind = "singleHop"
+)
+
+type simpleMatchQuery struct {
+	kind simpleMatchKind
+
+	nodeVar   string
+	nodeLabel string
+
+	leftVar    string
+	leftLabel  string
+	edgeType   string
+	rightVar   string
+	rightLabel string
+}
+
+func parseSimpleMatchQuery(query string) (simpleMatchQuery, error) {
+	normalized := strings.TrimSpace(query)
+	normalized = strings.TrimSuffix(normalized, ";")
+	normalized = strings.TrimSpace(normalized)
+
+	if m := nodeMatchPattern.FindStringSubmatch(normalized); m != nil {
+		return simpleMatchQuery{
+			kind:      simpleMatchKindNode,
+			nodeVar:   m[1],
+			nodeLabel: m[2],
+		}, nil
+	}
+	if m := edgeMatchPattern.FindStringSubmatch(normalized); m != nil {
+		return simpleMatchQuery{
+			kind:       simpleMatchKindSingleHop,
+			leftVar:    m[1],
+			leftLabel:  m[2],
+			edgeType:   m[3],
+			rightVar:   m[4],
+			rightLabel: m[5],
+		}, nil
+	}
+	return simpleMatchQuery{}, ErrInvalidMatchQuery
 }

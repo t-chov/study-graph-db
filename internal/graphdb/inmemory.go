@@ -183,8 +183,10 @@ func (e *InMemoryEngine) Match(query string) (ResultSet, error) {
 	return executeSimpleMatch(e, query)
 }
 
-func (e *InMemoryEngine) Explain(_ string) (QueryPlan, error) {
-	return QueryPlan{}, ErrNotImplemented
+func (e *InMemoryEngine) Explain(query string) (QueryPlan, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return buildSimpleMatchPlan(e, query)
 }
 
 func (e *InMemoryEngine) CreateIndex(spec IndexSpec) error {
