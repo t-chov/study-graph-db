@@ -20,11 +20,15 @@ func buildSimpleMatchPlan(e *InMemoryEngine, query string) (QueryPlan, error) {
 			},
 		}, nil
 	case simpleMatchKindSingleHop:
-		edgeCandidates := len(e.edgeTypeIndex[parsed.edgeType])
+		lookupStep := fmt.Sprintf("Lookup edges by type using edgeTypeIndex: type=%s", parsed.edgeType)
+		if _, ok := e.edgeTypeIndex[parsed.edgeType]; !ok {
+			lookupStep = fmt.Sprintf("Scan all edges and filter by type: type=%s", parsed.edgeType)
+		}
+		edgeCandidates := len(e.findEdgesByTypeNoLock(parsed.edgeType))
 		return QueryPlan{
 			Steps: []string{
 				"Parse MATCH query",
-				fmt.Sprintf("Lookup edges by type using edgeTypeIndex: type=%s", parsed.edgeType),
+				lookupStep,
 				fmt.Sprintf("Candidate edges: %d", edgeCandidates),
 				fmt.Sprintf("Filter source node by label: %s", parsed.leftLabel),
 				fmt.Sprintf("Filter destination node by label: %s", parsed.rightLabel),

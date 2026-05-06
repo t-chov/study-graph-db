@@ -181,14 +181,67 @@ func TestDropPropertyIndex(t *testing.T) {
 
 func TestCreateIndexValidation(t *testing.T) {
 	e := NewInMemoryEngine()
-	if err := e.CreateIndex(IndexSpec{Kind: IndexKindEdgeType, Label: "User", Property: "name"}); err != ErrUnsupportedIndexKind {
-		t.Fatalf("expected ErrUnsupportedIndexKind, got: %v", err)
-	}
 	if err := e.CreateIndex(IndexSpec{Kind: IndexKindProperty, Label: "", Property: "name"}); err != ErrInvalidIndexSpec {
 		t.Fatalf("expected ErrInvalidIndexSpec, got: %v", err)
 	}
-	if err := e.DropIndex(IndexSpec{Kind: IndexKindEdgeType, Label: "User", Property: "name"}); err != ErrUnsupportedIndexKind {
+	if err := e.CreateIndex(IndexSpec{Kind: IndexKindEdgeType}); err != ErrInvalidIndexSpec {
+		t.Fatalf("expected ErrInvalidIndexSpec, got: %v", err)
+	}
+	if err := e.DropIndex(IndexSpec{Kind: IndexKindEdgeType}); err != ErrInvalidIndexSpec {
+		t.Fatalf("expected ErrInvalidIndexSpec, got: %v", err)
+	}
+	if err := e.CreateIndex(IndexSpec{Kind: "unknown"}); err != ErrUnsupportedIndexKind {
 		t.Fatalf("expected ErrUnsupportedIndexKind, got: %v", err)
+	}
+	if err := e.DropIndex(IndexSpec{Kind: "unknown"}); err != ErrUnsupportedIndexKind {
+		t.Fatalf("expected ErrUnsupportedIndexKind, got: %v", err)
+	}
+}
+
+func TestEdgeTypeIndexBackfillAndDrop(t *testing.T) {
+	e := NewInMemoryEngine()
+	a, err := e.CreateNode([]string{"User"}, nil)
+	if err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+	b, err := e.CreateNode([]string{"User"}, nil)
+	if err != nil {
+		t.Fatalf("create node failed: %v", err)
+	}
+	if _, err := e.CreateEdge(a, b, "FOLLOWS", nil); err != nil {
+		t.Fatalf("create edge failed: %v", err)
+	}
+
+	spec := IndexSpec{
+		Kind:     IndexKindEdgeType,
+		EdgeType: "FOLLOWS",
+	}
+	if err := e.CreateIndex(spec); err != nil {
+		t.Fatalf("create edge-type index failed: %v", err)
+	}
+	if len(e.edgeTypeIndex["FOLLOWS"]) != 1 {
+		t.Fatalf("expected 1 indexed edge, got: %d", len(e.edgeTypeIndex["FOLLOWS"]))
+	}
+
+	if _, err := e.CreateEdge(b, a, "FOLLOWS", nil); err != nil {
+		t.Fatalf("create edge failed: %v", err)
+	}
+	if len(e.edgeTypeIndex["FOLLOWS"]) != 2 {
+		t.Fatalf("expected 2 indexed edges, got: %d", len(e.edgeTypeIndex["FOLLOWS"]))
+	}
+
+	if err := e.DropIndex(spec); err != nil {
+		t.Fatalf("drop edge-type index failed: %v", err)
+	}
+	if _, ok := e.edgeTypeIndex["FOLLOWS"]; ok {
+		t.Fatal("expected edge-type index to be removed")
+	}
+	edges, err := e.FindEdgesByType("FOLLOWS")
+	if err != nil {
+		t.Fatalf("find edges by type failed: %v", err)
+	}
+	if len(edges) != 2 {
+		t.Fatalf("expected fallback scan to find 2 edges, got: %d", len(edges))
 	}
 }
 
@@ -394,6 +447,9 @@ func TestExplainSingleHopPattern(t *testing.T) {
 	}
 	if _, err := e.CreateEdge(alice, bob, "FOLLOWS", nil); err != nil {
 		t.Fatalf("create edge failed: %v", err)
+	}
+	if err := e.CreateIndex(IndexSpec{Kind: IndexKindEdgeType, EdgeType: "FOLLOWS"}); err != nil {
+		t.Fatalf("create edge-type index failed: %v", err)
 	}
 
 	plan, err := e.Explain("MATCH (a:User)-[:FOLLOWS]->(b:User)")

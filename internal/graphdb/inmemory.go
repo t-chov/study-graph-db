@@ -193,58 +193,80 @@ func (e *InMemoryEngine) CreateIndex(spec IndexSpec) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if spec.Kind != IndexKindProperty {
+	switch spec.Kind {
+	case IndexKindProperty:
+		if spec.Label == "" || spec.Property == "" {
+			return ErrInvalidIndexSpec
+		}
+
+		key := propertyIndexKey{
+			Label:    spec.Label,
+			Property: spec.Property,
+		}
+		if _, ok := e.propertyIndexes[key]; ok {
+			return nil
+		}
+
+		e.propertyIndexes[key] = make(map[string]map[NodeID]struct{})
+
+		for id := range e.labelIndex[spec.Label] {
+			node := e.nodes[id]
+			value, ok := node.Properties[spec.Property]
+			if !ok {
+				continue
+			}
+			valueKey, err := propertyValueKey(value)
+			if err != nil {
+				continue
+			}
+			if _, ok := e.propertyIndexes[key][valueKey]; !ok {
+				e.propertyIndexes[key][valueKey] = make(map[NodeID]struct{})
+			}
+			e.propertyIndexes[key][valueKey][id] = struct{}{}
+		}
+		return nil
+	case IndexKindEdgeType:
+		if spec.EdgeType == "" {
+			return ErrInvalidIndexSpec
+		}
+		if _, ok := e.edgeTypeIndex[spec.EdgeType]; ok {
+			return nil
+		}
+		e.edgeTypeIndex[spec.EdgeType] = make(map[EdgeID]struct{})
+		for edgeID, edge := range e.edges {
+			if edge.Type == spec.EdgeType {
+				e.edgeTypeIndex[spec.EdgeType][edgeID] = struct{}{}
+			}
+		}
+		return nil
+	default:
 		return ErrUnsupportedIndexKind
 	}
-	if spec.Label == "" || spec.Property == "" {
-		return ErrInvalidIndexSpec
-	}
-
-	key := propertyIndexKey{
-		Label:    spec.Label,
-		Property: spec.Property,
-	}
-	if _, ok := e.propertyIndexes[key]; ok {
-		return nil
-	}
-
-	e.propertyIndexes[key] = make(map[string]map[NodeID]struct{})
-
-	for id := range e.labelIndex[spec.Label] {
-		node := e.nodes[id]
-		value, ok := node.Properties[spec.Property]
-		if !ok {
-			continue
-		}
-		valueKey, err := propertyValueKey(value)
-		if err != nil {
-			continue
-		}
-		if _, ok := e.propertyIndexes[key][valueKey]; !ok {
-			e.propertyIndexes[key][valueKey] = make(map[NodeID]struct{})
-		}
-		e.propertyIndexes[key][valueKey][id] = struct{}{}
-	}
-
-	return nil
 }
 
 func (e *InMemoryEngine) DropIndex(spec IndexSpec) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if spec.Kind != IndexKindProperty {
+	switch spec.Kind {
+	case IndexKindProperty:
+		if spec.Label == "" || spec.Property == "" {
+			return ErrInvalidIndexSpec
+		}
+		delete(e.propertyIndexes, propertyIndexKey{
+			Label:    spec.Label,
+			Property: spec.Property,
+		})
+		return nil
+	case IndexKindEdgeType:
+		if spec.EdgeType == "" {
+			return ErrInvalidIndexSpec
+		}
+		delete(e.edgeTypeIndex, spec.EdgeType)
+		return nil
+	default:
 		return ErrUnsupportedIndexKind
 	}
-	if spec.Label == "" || spec.Property == "" {
-		return ErrInvalidIndexSpec
-	}
-
-	delete(e.propertyIndexes, propertyIndexKey{
-		Label:    spec.Label,
-		Property: spec.Property,
-	})
-	return nil
 }
 
 func (e *InMemoryEngine) Begin() (Tx, error) {
@@ -353,10 +375,18 @@ func (e *InMemoryEngine) findNodesByLabelNoLock(label string) []Node {
 
 func (e *InMemoryEngine) findEdgesByTypeNoLock(edgeType string) []Edge {
 	ids, ok := e.edgeTypeIndex[edgeType]
-	if !ok {
-		return []Edge{}
+	if ok {
+		return e.collectEdges(ids)
 	}
-	return e.collectEdges(ids)
+
+	// Fallback scan when edge-type index is not enabled.
+	edges := make([]Edge, 0)
+	for _, edge := range e.edges {
+		if edge.Type == edgeType {
+			edges = append(edges, cloneEdge(edge))
+		}
+	}
+	return edges
 }
 
 func cloneNode(node Node) Node {
@@ -378,10 +408,10 @@ func cloneEdge(edge Edge) Edge {
 }
 
 func (e *InMemoryEngine) indexEdge(edge Edge) {
-	if _, ok := e.edgeTypeIndex[edge.Type]; !ok {
-		e.edgeTypeIndex[edge.Type] = make(map[EdgeID]struct{})
+	// edge-type index is optional in v6 and maintained only when enabled.
+	if idsByType, ok := e.edgeTypeIndex[edge.Type]; ok {
+		idsByType[edge.ID] = struct{}{}
 	}
-	e.edgeTypeIndex[edge.Type][edge.ID] = struct{}{}
 
 	if _, ok := e.outAdj[edge.From]; !ok {
 		e.outAdj[edge.From] = make(map[EdgeID]struct{})
