@@ -276,7 +276,12 @@ func (e *InMemoryEngine) dropIndexNoLock(spec IndexSpec) error {
 }
 
 func (e *InMemoryEngine) Begin() (Tx, error) {
-	return nil, ErrNotImplemented
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return &inMemoryTx{
+		engine: e,
+		data:   cloneEngineNoLock(e),
+	}, nil
 }
 
 func cloneLabels(labels []string) []string {
