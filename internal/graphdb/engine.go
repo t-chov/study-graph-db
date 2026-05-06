@@ -29,6 +29,10 @@ type Engine interface {
 	CreateIndex(spec IndexSpec) error
 	DropIndex(spec IndexSpec) error
 
+	// v7: persistence
+	Save(path string) error
+	Load(path string) error
+
 	// v8: transaction / WAL entry point
 	Begin() (Tx, error)
 }

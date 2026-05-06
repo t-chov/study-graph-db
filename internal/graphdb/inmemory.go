@@ -192,7 +192,16 @@ func (e *InMemoryEngine) Explain(query string) (QueryPlan, error) {
 func (e *InMemoryEngine) CreateIndex(spec IndexSpec) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.createIndexNoLock(spec)
+}
 
+func (e *InMemoryEngine) DropIndex(spec IndexSpec) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.dropIndexNoLock(spec)
+}
+
+func (e *InMemoryEngine) createIndexNoLock(spec IndexSpec) error {
 	switch spec.Kind {
 	case IndexKindProperty:
 		if spec.Label == "" || spec.Property == "" {
@@ -208,7 +217,6 @@ func (e *InMemoryEngine) CreateIndex(spec IndexSpec) error {
 		}
 
 		e.propertyIndexes[key] = make(map[string]map[NodeID]struct{})
-
 		for id := range e.labelIndex[spec.Label] {
 			node := e.nodes[id]
 			value, ok := node.Properties[spec.Property]
@@ -232,6 +240,7 @@ func (e *InMemoryEngine) CreateIndex(spec IndexSpec) error {
 		if _, ok := e.edgeTypeIndex[spec.EdgeType]; ok {
 			return nil
 		}
+
 		e.edgeTypeIndex[spec.EdgeType] = make(map[EdgeID]struct{})
 		for edgeID, edge := range e.edges {
 			if edge.Type == spec.EdgeType {
@@ -244,10 +253,7 @@ func (e *InMemoryEngine) CreateIndex(spec IndexSpec) error {
 	}
 }
 
-func (e *InMemoryEngine) DropIndex(spec IndexSpec) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
+func (e *InMemoryEngine) dropIndexNoLock(spec IndexSpec) error {
 	switch spec.Kind {
 	case IndexKindProperty:
 		if spec.Label == "" || spec.Property == "" {
